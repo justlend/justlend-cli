@@ -44,7 +44,7 @@ export function handleError(err: unknown): never {
   if (jsonMode) {
     process.stderr.write(JSON.stringify(payload) + '\n');
   } else {
-    console.error(chalk.red(`Error: ${payload.error}`));
+    console.error(chalk.red(`Error: ${sanitizeChainText(payload.error)}`));
     const details = [
       payload.code ? `code=${payload.code}` : undefined,
       payload.module ? `module=${payload.module}` : undefined,
@@ -123,4 +123,16 @@ function classifyError(err: unknown): JsonErrorPayload {
 export function sanitizeError(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);
   return msg.replace(/0x[0-9a-fA-F]{40,}/g, m => `${m.slice(0, 8)}…${m.slice(-4)}`);
+}
+
+// Strip terminal-dangerous C0/C1 control characters (incl. ESC and DEL) from
+// attacker-controlled chain text — decoded revert reasons, hex `resMessage`, and
+// the like — before it is printed to a human terminal. Without this a malicious
+// contract could embed ANSI escapes in a revert string to rewrite or erase prior
+// terminal lines and spoof the output a signing decision relies on. Keeps
+// \t \n \r so multi-line messages still render. JSON mode does not need this
+// (JSON.stringify already escapes these code points), so only call it on the
+// human/text rendering exits, never inside the JSON output paths.
+export function sanitizeChainText(s: string): string {
+  return s.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/g, '');
 }
