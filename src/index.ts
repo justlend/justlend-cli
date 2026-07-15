@@ -15,6 +15,7 @@ import { registerStusdtCommands } from './commands/stusdt.js';
 import { registerAirdropCommands } from './commands/airdrop.js';
 import { registerSunCommands } from './commands/sun.js';
 import { registerStrxCommands } from './commands/strx.js';
+import { registerWtrxCommands } from './commands/wtrx.js';
 import { registerEnergyCommands } from './commands/energy.js';
 import { registerGovCommands } from './commands/gov.js';
 import { registerMiningCommands } from './commands/mining.js';
@@ -118,6 +119,7 @@ export function createProgram(): Command {
   registerAirdropCommands(program);
   registerSunCommands(program);
   registerStrxCommands(program);
+  registerWtrxCommands(program);
   registerEnergyCommands(program);
   registerGovCommands(program);
   registerMiningCommands(program);
