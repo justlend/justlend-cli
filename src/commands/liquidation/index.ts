@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import { fetchLiquidationRecords, fetchPendingLiquidations } from '../../lib/api/v2.js';
 import { getNetworkFromCommand, parsePositiveInteger, pick, requireMoolahMainnet, shorten } from '../../lib/command-utils.js';
 import { outputList } from '../../lib/output.js';
+import { validateAddress } from '../../lib/tronweb.js';
 
 export function registerLiquidationCommands(program: Command): void {
   const liquidation = program
@@ -39,6 +40,8 @@ export function registerLiquidationCommands(program: Command): void {
       const local = this.opts();
       const network = getNetworkFromCommand(this);
       requireMoolahMainnet(network);
+      if (local.debt) validateAddress(local.debt, 'debt token');
+      if (local.collateral) validateAddress(local.collateral, 'collateral token');
       const { list, total } = await fetchLiquidationRecords(network, {
         type: local.type,
         debt: local.debt,
