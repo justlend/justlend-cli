@@ -4,7 +4,7 @@
 ![TRON Network](https://img.shields.io/badge/Network-TRON-red)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-3178C6)
 ![Protocol](https://img.shields.io/badge/Protocol-JustLend_DAO-green)
-![npm](https://img.shields.io/badge/npm-@justlend/justlend--cli-CB3837)
+![CI](https://github.com/justlend/justlend-cli/actions/workflows/ci.yml/badge.svg)
 
 CLI for [JustLend DAO](https://justlend.org) on TRON. Covers V2 (Moolah) lending, V1 legacy lending, sTRX / stUSDT staking, energy rental, governance, rewards, airdrops, mining reads, historical records, pre-sign transaction prechecks, and safe dry-run simulation.
 
@@ -19,12 +19,12 @@ CLI for [JustLend DAO](https://justlend.org) on TRON. Covers V2 (Moolah) lending
 
 ## Installation
 
-```bash
-# From npm
-npm install -g @justlend/justlend-cli
+The CLI is not currently published to npm. Install it from source:
 
-# Local development
-npm install
+```bash
+git clone https://github.com/justlend/justlend-cli.git
+cd justlend-cli
+npm ci
 npm run build
 npm link
 ```
@@ -92,6 +92,7 @@ v1            V1 legacy lending commands
 connect       Verify TronLink wallet connection
 serve         Run signer daemon / IPC server
 stusdt        stUSDT / wstUSDT staking commands
+wtrx          Wrap native TRX into WTRX or unwrap WTRX back to TRX
 airdrop       V2 airdrop multiClaim commands
 sun           SUN liquidity mining pool commands
 strx          sTRX liquid staking commands
@@ -116,7 +117,7 @@ rewards       V1 mining + V2 airdrop claimable summary
 | Class | Commands | Confirmation |
 |-------|----------|--------------|
 | 🟢 Network Read (no signing) | `network` `price` `market` `vault` `position` `liquidation` `history` `watch` `portfolio` `rewards` `mining` `simulate` `connect` `config` | none |
-| 🟡 Remote Write (signs + broadcasts) | `approve` `supply` `withdraw` `borrow` `repay` `collateral` `v1` `stusdt` `sun` `strx` `energy` `gov` `airdrop` `rewards claim` | dry-run first; `--yes` required in `--json`/`--quiet`/non-TTY |
+| 🟡 Remote Write (signs + broadcasts) | `approve` `supply` `withdraw` `borrow` `repay` `collateral` `v1` `stusdt` `wtrx` `sun` `strx` `energy` `gov` `airdrop` `rewards claim` | dry-run first; `--yes` required in `--json`/`--quiet`/non-TTY |
 | 🔴 Destructive / high-risk | `liquidate` | seizes another account's collateral (irreversible); dry-run + explicit `--yes`, never automate without review |
 | ⚙️ Daemon (local) | `serve` | per-session token + `0600/0700` files; same-user only; idle auto-shutdown (`--idle-timeout`, default 10 min) |
 
@@ -129,6 +130,8 @@ OWNER=TCrDi83pUoK17GbwxN1SckM3YNXzahWvoN
 
 justlend --json --network nile --dry-run --dry-run-owner "$OWNER" strx stake 0.000001
 justlend --json --network nile --dry-run --dry-run-owner "$OWNER" stusdt wrap 0.000001
+justlend --json --network nile --dry-run --dry-run-owner "$OWNER" wtrx wrap 1
+justlend --json --network nile --dry-run --dry-run-owner "$OWNER" wtrx unwrap 1
 justlend --json --network nile --dry-run --dry-run-owner "$OWNER" v1 deposit TRX 0.000001
 justlend --json --network nile --dry-run --dry-run-owner "$OWNER" gov exchange 0.000001
 ```
@@ -272,4 +275,3 @@ Key library modules:
 ## License
 
 MIT License Copyright (c) 2026 JustLend DAO
-
