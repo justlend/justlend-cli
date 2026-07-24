@@ -1,6 +1,7 @@
 import { TronWeb } from 'tronweb';
 import { triggerConstantRaw } from './tronweb.js';
 import { decodeRevertData } from './revert.js';
+import { sanitizeChainText } from './error.js';
 import { utils } from './utils.js';
 import { createSpinner, outputWarning } from './output.js';
 
@@ -102,7 +103,9 @@ function detectSimulationFailure(simResult: unknown): string | null {
   const decoded = decodeRevertData(r.constant_result?.[0]);
   if (decoded) return decoded;
   if (r.result?.message) {
-    try { return Buffer.from(r.result.message, 'hex').toString('utf-8'); } catch { return r.result.message; }
+    // Chain-provided hex → utf-8: strip terminal control chars before this
+    // reason reaches spinner.fail / handleError in human mode.
+    try { return sanitizeChainText(Buffer.from(r.result.message, 'hex').toString('utf-8')); } catch { return r.result.message; }
   }
   if (r.result?.code) return r.result.code;
   return 'Contract reverted';

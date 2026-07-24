@@ -23,6 +23,19 @@ describe('decodeRevertData', () => {
     assert.equal(decodeRevertData(hex), 'insufficient balance');
   });
 
+  it('strips terminal control characters from an attacker-controlled reason', () => {
+    // Error(string) carrying the bytes "A", ESC (0x1b), "B": an ANSI escape
+    // embedded in the revert reason must not survive into the printed output
+    // (terminal-escape injection / log spoofing).
+    const payload = Buffer.from([0x41, 0x1b, 0x42]); // "A\x1bB"
+    const lenWord = payload.length.toString(16).padStart(64, '0');
+    const dataWord = payload.toString('hex').padEnd(64, '0');
+    const hex = '0x08c379a0' +
+      '0000000000000000000000000000000000000000000000000000000000000020' +
+      lenWord + dataWord;
+    assert.equal(decodeRevertData(hex), 'AB');
+  });
+
   it('decodes standard Solidity Panic(uint256)', () => {
     // selector: 4e487b71
     // panic code 0x11 (arithmetic overflow or underflow)

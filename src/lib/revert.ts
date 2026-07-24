@@ -7,6 +7,8 @@
 // Returns null when the input is empty (caller decides whether that means
 // "no failure" or "reverted with no reason").
 
+import { sanitizeChainText } from './error.js';
+
 const ERROR_STRING_SELECTOR = '08c379a0';
 const PANIC_SELECTOR = '4e487b71';
 
@@ -38,7 +40,9 @@ export function decodeRevertData(hex?: string | null): string | null {
       const len = parseInt(args.slice(64, 128), 16);
       if (Number.isFinite(len) && len > 0) {
         const strHex = args.slice(128, 128 + len * 2);
-        const decoded = Buffer.from(strHex, 'hex').toString('utf-8');
+        // Attacker-controlled bytes: strip terminal control chars before this
+        // reason can reach a human terminal (spinner.fail / dry-run table / handleError).
+        const decoded = sanitizeChainText(Buffer.from(strHex, 'hex').toString('utf-8'));
         if (decoded) return decoded;
       }
     } catch { /* fall through */ }

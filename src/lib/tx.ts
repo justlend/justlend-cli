@@ -2,6 +2,7 @@ import type { Command } from 'commander';
 import { getNetworkFromCommand } from './command-utils.js';
 import { getTronWeb, callValueToSafeNumber, broadcastTx, waitForTxResult, validateAddress, triggerConstantRaw } from './tronweb.js';
 import { decodeRevertData } from './revert.js';
+import { sanitizeChainText } from './error.js';
 import { initSigner, resolveSignerTimeout, shutdownSigner } from './signer.js';
 import { getExplorerTxUrl, type TransactionResult } from './types.js';
 import { utils } from './utils.js';
@@ -110,7 +111,9 @@ async function dryRunContractTx(params: ContractTxParams, ownerAddress: string):
       revertReason = decodeRevertData(sim.constant_result[0]) ?? undefined;
     }
     if (!revertReason && simResult.message) {
-      try { revertReason = Buffer.from(simResult.message, 'hex').toString('utf-8'); } catch { revertReason = simResult.message; }
+      // Chain-provided hex → utf-8: strip terminal control chars before this
+      // reason is rendered in the human-mode dry-run table via outputResult.
+      try { revertReason = sanitizeChainText(Buffer.from(simResult.message, 'hex').toString('utf-8')); } catch { revertReason = simResult.message; }
     }
     if (!revertReason && thrownMessage) {
       revertReason = thrownMessage;
