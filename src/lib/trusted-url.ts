@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 
-export type TrustedUrlKind = 'fullHost' | 'apiHost' | 'moolahApiHost';
+export type TrustedUrlKind = 'fullHost' | 'apiHost' | 'moolahApiHost' | 'energyApiHost';
 
 const TRUSTED_HOSTS = new Set([
   'api.trongrid.io',
