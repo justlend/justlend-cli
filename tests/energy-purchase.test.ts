@@ -1,8 +1,12 @@
 import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 import * as assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import {
   EnergyPurchaseClient,
   EnergyPurchaseError,
+  FileEnergyPaymentRiskStore,
   type EnergyPaymentRisk,
   type StorageLike,
 } from '../src/lib/energy-purchase.js';
@@ -32,6 +36,7 @@ function config() {
 
 class MemoryRiskStore implements StorageLike {
   risks: EnergyPaymentRisk[] = [];
+  intents = new Map<string, string>();
   list(payerAddress: string) { return this.risks.filter(risk => risk.payerAddress === payerAddress); }
   save(risk: EnergyPaymentRisk) {
     this.risks = this.risks.filter(item => !(item.payerAddress === risk.payerAddress && item.signedTxId === risk.signedTxId));
@@ -39,6 +44,18 @@ class MemoryRiskStore implements StorageLike {
   }
   remove(payerAddress: string, signedTxId?: string) {
     this.risks = this.risks.filter(risk => risk.payerAddress !== payerAddress || (signedTxId !== undefined && risk.signedTxId !== signedTxId));
+  }
+  acquirePurchaseIntent(payerAddress: string) {
+    if (this.intents.has(payerAddress)) {
+      throw new EnergyPurchaseError('PAYMENT_IN_PROGRESS', 'purchase in progress');
+    }
+    const token = `intent-${this.intents.size + 1}`;
+    this.intents.set(payerAddress, token);
+    return token;
+  }
+  releasePurchaseIntent(payerAddress: string, token: string) {
+    if (this.intents.get(payerAddress) !== token) throw new Error('intent owner mismatch');
+    this.intents.delete(payerAddress);
   }
 }
 
@@ -141,5 +158,150 @@ describe('energy direct-purchase client', () => {
     assert.deepEqual(store.risks, []);
     assert.equal('sendRawTransaction' in tronWeb.trx, false);
   });
-});
 
+  it('rejects a concurrent purchase for the same payer before a second signature', async () => {
+    const { tronWeb, signTransaction } = harness();
+    const store = new MemoryRiskStore();
+    let releaseConfig!: () => void;
+    let markConfigStarted!: () => void;
+    const configStarted = new Promise<void>(resolve => { markConfigStarted = resolve; });
+    const configGate = new Promise<void>(resolve => { releaseConfig = resolve; });
+    let buyCalls = 0;
+    const fetchImpl = mock.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.endsWith('/v1/config')) {
+        markConfigStarted();
+        await configGate;
+        return envelope(config());
+      }
+      if (url.endsWith('/v1/price')) {
+        return envelope({ amount_sun: 2405000, pay_address: PAY_ADDRESS, can_fulfill: true });
+      }
+      if (url.endsWith('/v1/consumer/energy/buy')) {
+        buyCalls += 1;
+        return envelope({ id: 8, tx_id: 'signed-id', access_token: 'token', state: 'paid' });
+      }
+      if (url.endsWith('/v1/consumer/energy/orders/8')) return envelope({ id: 8, state: 'delivered' });
+      throw new Error(`unexpected ${url}`);
+    });
+    const options = {
+      baseUrl: 'https://energy.example',
+      fetch: fetchImpl,
+      tronWeb: tronWeb as any,
+      storage: store,
+      sleep: async () => {},
+      now: () => 1,
+    };
+    const firstClient = new EnergyPurchaseClient(options);
+    const secondClient = new EnergyPurchaseClient(options);
+    const input = {
+      payerAddress: PAYER,
+      receivers: [RECEIVER],
+      energyPerReceiver: 65000,
+      duration: '1h',
+      expectedAmountSun: 2405000,
+      signTransaction,
+    };
+
+    const firstPurchase = firstClient.purchase(input);
+    await configStarted;
+    await assert.rejects(
+      secondClient.purchase(input),
+      (error: unknown) => error instanceof EnergyPurchaseError && error.code === 'PAYMENT_IN_PROGRESS',
+    );
+    releaseConfig();
+    await firstPurchase;
+
+    assert.equal(signTransaction.mock.callCount(), 1);
+    assert.equal(buyCalls, 1);
+  });
+
+  it('uses an atomic file intent to block a second process before signing', () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'justlend-cli-energy-lock-'));
+    try {
+      const riskFile = path.join(directory, 'risks.json');
+      const firstStore = new FileEnergyPaymentRiskStore(riskFile);
+      const secondStore = new FileEnergyPaymentRiskStore(riskFile);
+      const firstToken = firstStore.acquirePurchaseIntent(PAYER, 100, 1000);
+
+      assert.throws(
+        () => secondStore.acquirePurchaseIntent(PAYER, 101, 1001),
+        (error: unknown) => error instanceof EnergyPurchaseError && error.code === 'PAYMENT_IN_PROGRESS',
+      );
+
+      firstStore.releasePurchaseIntent(PAYER, firstToken);
+      const secondToken = secondStore.acquirePurchaseIntent(PAYER, 102, 1002);
+      secondStore.releasePurchaseIntent(PAYER, secondToken);
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('fails closed without overwriting a corrupt payment-risk file', () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'justlend-cli-energy-risk-'));
+    try {
+      const riskFile = path.join(directory, 'risks.json');
+      fs.writeFileSync(riskFile, '{not-json', { mode: 0o600 });
+      const store = new FileEnergyPaymentRiskStore(riskFile);
+
+      assert.throws(
+        () => store.list(PAYER),
+        (error: unknown) => error instanceof EnergyPurchaseError && error.code === 'RISK_STORAGE_ERROR',
+      );
+      assert.throws(
+        () => store.save({ payerAddress: PAYER, signedTxId: 'tx', createdAt: 1, expiresAt: 2, paymentConfirmed: false }),
+        (error: unknown) => error instanceof EnergyPurchaseError && error.code === 'RISK_STORAGE_ERROR',
+      );
+      assert.equal(fs.readFileSync(riskFile, 'utf8'), '{not-json');
+
+      const invalidSchema = JSON.stringify([{ payerAddress: PAYER, signedTxId: 'tx' }]);
+      fs.writeFileSync(riskFile, invalidSchema, { mode: 0o600 });
+      assert.throws(
+        () => store.list(PAYER),
+        (error: unknown) => error instanceof EnergyPurchaseError && error.code === 'RISK_STORAGE_ERROR',
+      );
+      assert.equal(fs.readFileSync(riskFile, 'utf8'), invalidSchema);
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects any authoritative quote change before signing', async () => {
+    const { tronWeb, signTransaction } = harness();
+    let buyCalls = 0;
+    const fetchImpl = mock.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.endsWith('/v1/config')) return envelope(config());
+      if (url.endsWith('/v1/price')) {
+        return envelope({ amount_sun: 2404999, pay_address: PAY_ADDRESS, can_fulfill: true });
+      }
+      if (url.endsWith('/v1/consumer/energy/buy')) {
+        buyCalls += 1;
+        return envelope({});
+      }
+      throw new Error(`unexpected ${url}`);
+    });
+    const client = new EnergyPurchaseClient({
+      baseUrl: 'https://energy.example',
+      fetch: fetchImpl,
+      tronWeb: tronWeb as any,
+      storage: new MemoryRiskStore(),
+      now: () => 1,
+    });
+
+    await assert.rejects(
+      client.purchase({
+        payerAddress: PAYER,
+        receivers: [RECEIVER],
+        energyPerReceiver: 65000,
+        duration: '1h',
+        expectedAmountSun: 2405000,
+        signTransaction,
+      }),
+      (error: unknown) => error instanceof EnergyPurchaseError && error.code === 'AMOUNT_CHANGED',
+    );
+
+    assert.equal(signTransaction.mock.callCount(), 0);
+    assert.equal(buyCalls, 0);
+  });
+});

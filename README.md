@@ -153,8 +153,11 @@ The CLI signs a native TRX transfer but **never broadcasts it locally**. The con
 service validates and broadcasts the signed transaction. Ambiguous submissions retry only the same
 signed transaction. Public transaction identifiers—not signed transaction payloads—are persisted in
 `~/.justlend-cli/energy-payment-risks.json` so a later invocation cannot silently create a second
-payment. `--no-broadcast` is intentionally rejected for this workflow; use `quote` or `--dry-run`
-instead.
+payment. A per-payer intent lock is also created atomically before signing, so concurrent CLI
+processes cannot authorize two payments. The final authoritative quote must exactly match the amount
+shown at confirmation time. Corrupt or unreadable safety state blocks purchases instead of being
+treated as empty. `--no-broadcast` is intentionally rejected for this workflow; use `quote` or
+`--dry-run` instead.
 
 ## Safe dry-run examples
 
