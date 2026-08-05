@@ -52,6 +52,7 @@ export function createProgram(): Command {
     .option('--full-host <url>', 'Override Tron full/solidity/event host (or JUSTLEND_FULL_HOST env)')
     .option('--api-host <url>', 'Override JustLend V1 backend host (or JUSTLEND_API_HOST env)')
     .option('--moolah-api-host <url>', 'Override Moolah V2 backend host (or JUSTLEND_MOOLAH_API_HOST env)')
+    .option('--energy-api-url <url>', 'Energy direct-purchase API URL (or JUSTLEND_ENERGY_API_URL env; no default)')
     .option('--json', 'Output as JSON')
     .option('--local-broadcast', 'Broadcast via CLI local TronWeb instead of signer TronWeb')
     .option('--allow-untrusted-host', 'Allow custom RPC/API hosts outside the built-in allowlist')
@@ -101,6 +102,7 @@ export function createProgram(): Command {
     if (opts.fullHost) process.env.JUSTLEND_FULL_HOST = opts.fullHost;
     if (opts.apiHost) process.env.JUSTLEND_API_HOST = opts.apiHost;
     if (opts.moolahApiHost) process.env.JUSTLEND_MOOLAH_API_HOST = opts.moolahApiHost;
+    if (opts.energyApiUrl) process.env.JUSTLEND_ENERGY_API_URL = opts.energyApiUrl;
     if (opts.apiKey) process.env.JUSTLEND_API_KEY = opts.apiKey;
   });
 
