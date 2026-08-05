@@ -13,6 +13,7 @@ import {
 import { createProgram } from '../src/index.js';
 
 const PAYER = 'TJRabPrwbZy45sbavfcjinPJC18kjpRTv8';
+const SECOND_PAYER = 'TMwFHYXLJaRUPeW6421aqXL4ZEzPRFGkGT';
 const RECEIVER = 'TVjsyZ7fYF3qLF6BQgPmTEZy1xrNNyVAAA';
 const PAY_ADDRESS = 'T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb';
 
@@ -232,6 +233,47 @@ describe('energy direct-purchase client', () => {
       firstStore.releasePurchaseIntent(PAYER, firstToken);
       const secondToken = secondStore.acquirePurchaseIntent(PAYER, 102, 1002);
       secondStore.releasePurchaseIntent(PAYER, secondToken);
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('serializes shared risk-file mutations across payer stores', () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'justlend-cli-risk-lock-'));
+    try {
+      const riskFile = path.join(directory, 'risks.json');
+      const firstStore = new FileEnergyPaymentRiskStore(riskFile);
+      const secondStore = new FileEnergyPaymentRiskStore(riskFile);
+      const firstRisk: EnergyPaymentRisk = {
+        payerAddress: PAYER,
+        signedTxId: 'first',
+        createdAt: 1,
+        expiresAt: 2,
+        paymentConfirmed: false,
+      };
+      const secondRisk: EnergyPaymentRisk = {
+        payerAddress: SECOND_PAYER,
+        signedTxId: 'second',
+        createdAt: 1,
+        expiresAt: 2,
+        paymentConfirmed: false,
+      };
+      const firstInternals = firstStore as unknown as {
+        writeAll(risks: EnergyPaymentRisk[]): void;
+      };
+      const writeAll = firstInternals.writeAll.bind(firstStore);
+      firstInternals.writeAll = (risks) => {
+        assert.throws(
+          () => secondStore.save(secondRisk),
+          (error: unknown) => error instanceof EnergyPurchaseError && error.code === 'RISK_STORAGE_BUSY',
+        );
+        writeAll(risks);
+      };
+
+      firstStore.save(firstRisk);
+      secondStore.save(secondRisk);
+      assert.deepEqual(firstStore.list(PAYER), [firstRisk]);
+      assert.deepEqual(firstStore.list(SECOND_PAYER), [secondRisk]);
     } finally {
       fs.rmSync(directory, { recursive: true, force: true });
     }

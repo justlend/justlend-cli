@@ -21,7 +21,10 @@ export const ENERGY_PURCHASE_TERMINAL_STATES = ['delivered', 'partial', 'failed'
 const ORDER_TTL_MS = 5 * 60 * 1000;
 const PAYMENT_RETRY_TIMEOUT_MS = 2 * 60 * 1000;
 const PURCHASE_INTENT_TTL_MS = 15 * 60 * 1000;
+const RISK_MUTATION_LOCK_WAIT_MS = 2_000;
+const RISK_MUTATION_LOCK_RETRY_MS = 10;
 const RISK_FILE = path.join(os.homedir(), '.justlend-cli', 'energy-payment-risks.json');
+const mutationLockWaitBuffer = new Int32Array(new SharedArrayBuffer(4));
 
 export class EnergyPurchaseError extends Error {
   readonly code: string;
@@ -93,6 +96,12 @@ interface PurchaseIntent {
   expiresAt: number;
 }
 
+interface RiskMutationLock {
+  token: string;
+  pid: number;
+  createdAt: number;
+}
+
 function storageError(message: string, cause?: unknown): EnergyPurchaseError {
   return new EnergyPurchaseError('RISK_STORAGE_ERROR', message, { cause });
 }
@@ -140,6 +149,24 @@ function parsePurchaseIntent(raw: string): PurchaseIntent {
   return intent as PurchaseIntent;
 }
 
+function parseRiskMutationLock(raw: string): RiskMutationLock {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (cause) {
+    throw storageError('Energy payment risk lock contains invalid JSON; purchases remain blocked.', cause);
+  }
+  const lock = parsed as Partial<RiskMutationLock> | null;
+  if (
+    !lock || typeof lock !== 'object' || typeof lock.token !== 'string' || lock.token.length === 0 ||
+    !Number.isSafeInteger(lock.pid) || Number(lock.pid) <= 0 ||
+    !Number.isSafeInteger(lock.createdAt) || Number(lock.createdAt) < 0
+  ) {
+    throw storageError('Energy payment risk lock has an invalid schema; purchases remain blocked.');
+  }
+  return lock as RiskMutationLock;
+}
+
 export class FileEnergyPaymentRiskStore implements StorageLike {
   constructor(private readonly filePath = RISK_FILE) {}
 
@@ -171,6 +198,77 @@ export class FileEnergyPaymentRiskStore implements StorageLike {
     } catch (cause) {
       if (cause instanceof EnergyPurchaseError) throw cause;
       throw storageError('Unable to persist the energy payment risk file; purchases are blocked.', cause);
+    }
+  }
+
+  private mutationLockPath(): string {
+    return `${this.filePath}.mutation.lock`;
+  }
+
+  private acquireMutationLock(): string {
+    const lockPath = this.mutationLockPath();
+    const deadline = Date.now() + RISK_MUTATION_LOCK_WAIT_MS;
+    fs.mkdirSync(path.dirname(lockPath), { recursive: true, mode: 0o700 });
+
+    for (;;) {
+      const token = randomUUID();
+      let descriptor: number;
+      try {
+        descriptor = fs.openSync(lockPath, fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY, 0o600);
+      } catch (cause) {
+        if (!isNodeError(cause, 'EEXIST')) {
+          throw storageError('Unable to lock the energy payment risk file; purchases are blocked.', cause);
+        }
+        if (Date.now() >= deadline) {
+          throw new EnergyPurchaseError(
+            'RISK_STORAGE_BUSY',
+            'The energy payment risk file is busy or its previous writer exited unexpectedly; purchases remain blocked.',
+            { retryable: true },
+          );
+        }
+        Atomics.wait(mutationLockWaitBuffer, 0, 0, RISK_MUTATION_LOCK_RETRY_MS);
+        continue;
+      }
+
+      try {
+        fs.writeFileSync(descriptor, JSON.stringify({ token, pid: process.pid, createdAt: Date.now() }));
+        fs.fsyncSync(descriptor);
+        fs.closeSync(descriptor);
+      } catch (cause) {
+        try { fs.closeSync(descriptor); } catch { /* Preserve the original persistence error. */ }
+        try { fs.unlinkSync(lockPath); } catch { /* Best effort after a failed exclusive create. */ }
+        throw storageError('Unable to persist the energy payment risk lock; purchases remain blocked.', cause);
+      }
+      return token;
+    }
+  }
+
+  private releaseMutationLock(token: string): void {
+    const lockPath = this.mutationLockPath();
+    let current: RiskMutationLock;
+    try {
+      current = parseRiskMutationLock(fs.readFileSync(lockPath, 'utf8'));
+    } catch (cause) {
+      if (cause instanceof EnergyPurchaseError) throw cause;
+      throw storageError('Unable to verify the energy payment risk lock; it was preserved.', cause);
+    }
+    if (current.token !== token) {
+      throw storageError('Energy payment risk lock ownership changed; the current lock was preserved.');
+    }
+    try {
+      fs.unlinkSync(lockPath);
+    } catch (cause) {
+      if (isNodeError(cause, 'ENOENT')) return;
+      throw storageError('Unable to release the energy payment risk lock; purchases remain blocked.', cause);
+    }
+  }
+
+  private mutateAll(mutator: (risks: EnergyPaymentRisk[]) => EnergyPaymentRisk[]): void {
+    const token = this.acquireMutationLock();
+    try {
+      this.writeAll(mutator(this.readAll()));
+    } finally {
+      this.releaseMutationLock(token);
     }
   }
 
@@ -278,16 +376,17 @@ export class FileEnergyPaymentRiskStore implements StorageLike {
   }
 
   save(risk: EnergyPaymentRisk): void {
-    const remaining = this.readAll().filter(item => !(item.payerAddress === risk.payerAddress && item.signedTxId === risk.signedTxId));
-    remaining.push(risk);
-    this.writeAll(remaining);
+    this.mutateAll((risks) => {
+      const remaining = risks.filter(item => !(item.payerAddress === risk.payerAddress && item.signedTxId === risk.signedTxId));
+      remaining.push(risk);
+      return remaining;
+    });
   }
 
   remove(payerAddress: string, signedTxId?: string): void {
-    const remaining = this.readAll().filter(risk =>
+    this.mutateAll(risks => risks.filter(risk =>
       risk.payerAddress !== payerAddress || (signedTxId !== undefined && risk.signedTxId !== signedTxId),
-    );
-    this.writeAll(remaining);
+    ));
   }
 }
 
