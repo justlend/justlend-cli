@@ -49,9 +49,9 @@ export interface JustLendAddresses {
     multi: string; // Multi-token rewards
   };
   /**
-   * V2 (Moolah) merkle distributor — multi-token leaves claimed via
-   * multiClaim((uint256,uint256,uint256[],bytes32[])[]). Empty string when not
-   * yet deployed on the network (mainnet placeholder until contracts ship).
+   * V2 merkle distributor — multi-token leaves claimed via
+   * multiClaim((uint256,uint256,uint256[],bytes32[])[]). Empty string when a
+   * network has not yet received the deployment.
    */
   merkleDistributorV2: string;
   /** sTRX staking related contracts */
@@ -152,7 +152,7 @@ export const JUSTLEND_ADDRESSES: Record<TronNetwork, JustLendAddresses> = {
       strx: "TKQ5VVJPsoZDD7NqQ8ffhFwzeRp45XLSGt",
       multi: "TUsyCPRyQdMsn9WnJcssBFXtzg6bUVbty6",
     },
-    merkleDistributorV2: "",
+    merkleDistributorV2: "TRiE1tGxBitNAMUazZ6Kk7GA36hpPdzUSL",
     strx: {
       proxy: "TU3kjFuhtEo42tsCBtfYUAZxoqQ4yuSLQ5",
       market: "TU2MJ5Veik1LRAgjeSzEdvmDYx7mefJZvd",
@@ -743,11 +743,12 @@ const JUSTLEND_API_HOSTS: Record<string, string> = {
 };
 
 export function getApiHost(network: string = DEFAULT_NETWORK): string {
+  getNetworkConfig(network); // Validate even when an endpoint override is configured.
   if (process.env.JUSTLEND_API_HOST) return validateTrustedUrl(process.env.JUSTLEND_API_HOST, 'apiHost');
   const n = network.toLowerCase();
   if (n === "mainnet" || n === "tron" || n === "trx") return validateTrustedUrl(JUSTLEND_API_HOSTS.mainnet, 'apiHost');
   if (n === "nile" || n === "testnet") return validateTrustedUrl(JUSTLEND_API_HOSTS.nile, 'apiHost');
-  return validateTrustedUrl(JUSTLEND_API_HOSTS.mainnet, 'apiHost');
+  throw new Error(`Unsupported network: ${network}`);
 }
 
 // ── Moolah V2 helpers ─────────────────────────────────────────────────────────
@@ -765,6 +766,7 @@ const MOOLAH_API_HOSTS: Record<string, string> = {
 };
 
 export function getMoolahApiHost(network: string = DEFAULT_NETWORK): string {
+  getNetworkConfig(network);
   if (process.env.JUSTLEND_MOOLAH_API_HOST) return validateTrustedUrl(process.env.JUSTLEND_MOOLAH_API_HOST, 'moolahApiHost');
   const n = network.toLowerCase();
   if (n === "mainnet" || n === "tron" || n === "trx") return validateTrustedUrl(MOOLAH_API_HOSTS.mainnet, 'moolahApiHost');
