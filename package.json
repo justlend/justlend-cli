@@ -53,7 +53,7 @@
     "test:smoke:nile": "bash scripts/nile-dry-run-smoke.sh"
   },
   "engines": {
-    "node": "24.22.1"
+    "node": "24.22.3"
   },
   "license": "MIT",
   "dependencies": {
