@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![TRON Network](https://img.shields.io/badge/Network-TRON-red)](https://tron.network/)
-[![Node.js](https://img.shields.io/badge/Node.js-24.22.1-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-24.22.3-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9.3-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Protocol: JustLend DAO](https://img.shields.io/badge/Protocol-JustLend_DAO-green)](https://justlend.org/)
 [![CI](https://github.com/justlend/justlend-cli/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/justlend/justlend-cli/actions/workflows/ci.yml)
@@ -13,7 +13,7 @@ CLI for [JustLend DAO](https://justlend.org) on TRON. Covers V2 (Moolah) lending
 
 ## Requirements
 
-- Recommended: Node.js **24.22.1** (used by development and CI)
+- Recommended: Node.js **24.22.3** (used by development and CI)
 - npm
 - TronLink browser extension + `tronlink-signer` only when signing real write transactions
 - TRON API key is optional; pass `--api-key <key>` or set `JUSTLEND_API_KEY` / `TRON_API_KEY`
